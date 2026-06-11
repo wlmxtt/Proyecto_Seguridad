@@ -4,56 +4,123 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <cstdlib> // Necesario para std::system
 
-// Prototipos y macros mínimas para evitar dependencias obligatorias de Winsock2.h
-// directas en la cabecera si el usuario prefiere incluirlo en el archivo de implementación,
-// pero se definen aquí los esqueletos de administración de red y sockets TCP.
+// Configuración nativa para Windows Sockets (Evita conflictos de cabeceras)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+// Directiva para enlazar la librería de red automáticamente si usas MSVC
+#pragma comment(lib, "ws2_32.lib")
 
 class NetworkManager {
 public:
     /**
-     * @brief Inicia un servidor socket TCP que escucha en el puerto especificado.
-     * Diseñado para recibir alertas o comandos de control remotos.
-     * @param port Puerto en el que escuchará el socket (ej. 8888).
-     * @return true si el servidor se inició y procesó correctamente, false ante fallos.
+     * @brief Levanta un socket TCP real en el puerto especificado y bloquea la ejecución
+     * hasta que detecta una conexión entrante (intento de ataque/escaneo), capturando la IP.
      */
     bool startListeningServer(int port) {
-        std::cout << "[NETWORK] Iniciando socket del servidor TCP en el puerto " << std::dec << port << "...\n";
-        std::cout << "[NETWORK] Servidor a la escucha de conexiones entrantes (Esqueleto/Simulado)...\n";
+        std::cout << "[NETWORK] Inicializando Winsock (Capa de Red Real de Windows)...\n";
         
-        // Aquí se implementará la inicialización de Winsock (WSAStartup, socket, bind, listen, accept).
-        // Para el esqueleto simularemos una respuesta exitosa.
-        return true;
-    }
-
-    /**
-     * @brief Bloquea una dirección IP ejecutando un comando del sistema (ej. Windows Firewall netsh o ruta estática).
-     * @param ipAddress Dirección IP a bloquear (ej. "192.168.1.100").
-     * @return true si el comando se ejecutó de forma segura, false en caso contrario.
-     */
-    bool blockIpAddress(const std::string& ipAddress) {
-        // Validación básica del formato de la IP para evitar inyecciones de comandos en system()
-        if (ipAddress.empty() || ipAddress.find_first_not_of("0123456789.") != std::string::npos) {
-            std::cerr << "[NETWORK] Error: Dirección IP no válida o contiene caracteres sospechosos.\n";
+        WSADATA wsaData;
+        if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+            std::cerr << "[NETWORK] Error: No se pudo inicializar Winsock. Código: " << WSAGetLastError() << "\n";
             return false;
         }
 
-        std::cout << "[NETWORK] Intentando bloquear IP: " << ipAddress << "\n";
+        // Crear el socket TCP real
+        SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (serverSocket == INVALID_SOCKET) {
+            std::cerr << "[NETWORK] Error: No se pudo crear el socket. Código: " << WSAGetLastError() << "\n";
+            WSACleanup();
+            return false;
+        }
+
+        // Configurar la dirección del servidor (escuchar en cualquier interfaz de red de la PC)
+        sockaddr_in serverAddr;
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_addr.s_addr = INADDR_ANY; 
+        serverAddr.sin_port = htons(port);
+
+        // Vincular el puerto real de la computadora
+        if (bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+            std::cerr << "[NETWORK] Error: Fallo en BIND. El puerto " << port << " ya está en uso.\n";
+            closesocket(serverSocket);
+            WSACleanup();
+            return false;
+        }
+
+        // Poner el puerto a la escucha
+        if (listen(serverSocket, SOMAXCONN) == SOCKET_ERROR) {
+            std::cerr << "[NETWORK] Error: Fallo al poner el socket en modo listen.\n";
+            closesocket(serverSocket);
+            WSACleanup();
+            return false;
+        }
+
+        std::cout << "\n[MONITOR IPS ACTIVO] Escuchando conexiones REALES en el puerto TCP: " << port << "...\n";
+        std::cout << "[MONITOR IPS ACTIVO] Esperando intrusión o escaneo de red en vivo...\n";
+
+        // EL PROGRAMA SE DETIENE AQUÍ ESPERANDO EL ATAQUE REAL
+        sockaddr_in clientAddr;
+        int clientSize = sizeof(clientAddr);
+        SOCKET clientSocket = accept(serverSocket, (sockaddr*)&clientAddr, &clientSize);
+
+        if (clientSocket == INVALID_SOCKET) {
+            std::cerr << "[NETWORK] Error al aceptar la conexión entrante.\n";
+            closesocket(serverSocket);
+            WSACleanup();
+            return false;
+        }
+
+        // EXTRAER LA IP REAL DEL ATACANTE
+        char ipStr[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(clientAddr.sin_addr), ipStr, INET_ADDRSTRLEN);
+        std::string attackerIp(ipStr);
+
+        std::cout << "\n[¡ALERTA CRÍTICA!] Intento de acceso no autorizado desde la IP: " << attackerIp << "\n";
+
+        // EJECUTAR EL IPS: Pasar la IP detectada dinámicamente al Firewall
+        bool blockSuccess = blockIpAddress(attackerIp);
+
+        // Limpieza de sockets
+        closesocket(clientSocket);
+        closesocket(serverSocket);
+        WSACleanup();
+
+        return blockSuccess;
+    }
+
+    /**
+     * @brief Agrega una regla de bloqueo real e inmediato al Firewall de Windows mediante netsh.
+     */
+    bool blockIpAddress(const std::string& ipAddress) {
+        // Validación estricta para evitar inyección de comandos
+        if (ipAddress.empty() || ipAddress.find_first_not_of("0123456789.") != std::string::npos) {
+            std::cerr << "[FIREWALL] Error: Dirección IP no válida o maliciosa.\n";
+            return false;
+        }
+
+        std::cout << "[FIREWALL] Modificando las tablas del Kernel de Windows...\n";
         
-        // Construimos el comando usando la sintaxis oficial de netsh en Windows de forma segura.
-        // Comando: netsh advfirewall firewall add rule name="Block IP <ip>" dir=in action=block remoteip=<ip>
+        // Comando oficial dinámico de Windows para denegar todo tráfico entrante de esa IP específica
         std::string command = "netsh advfirewall firewall add rule name=\"IPS_Block_" + ipAddress + "\" dir=in action=block remoteip=" + ipAddress;
         
-        std::cout << "[NETWORK] Comando a ejecutar: " << command << "\n";
+        std::cout << "[FIREWALL] Comando del Sistema Ejecutado: " << command << "\n";
         
-        // Nota: En un entorno de producción, es preferible utilizar la API de Windows (Windows Filtering Platform)
-        // o ejecutar el proceso mediante CreateProcess de manera controlada en lugar de system().
-        // Como este es el esqueleto base solicitado, preparamos la llamada al sistema.
+        // EJECUCIÓN INTERACTIVA DIRECTA EN EL SISTEMA OPERATIVO
+        int result = std::system(command.c_str());
         
-        // int result = std::system(command.c_str());
-        // return (result == 0);
-        
-        return true;
+        if (result == 0) {
+            std::cout << "[ÉXITO] ¡La IP " << ipAddress << " ha sido bloqueada REALMENTE en el Firewall de Windows!\n";
+            return true;
+        } else {
+            std::cerr << "[ERROR] No se pudo agregar la regla. Asegúrate de ejecutar el programa como ADMINISTRADOR.\n";
+            return false;
+        }
     }
 };
 
