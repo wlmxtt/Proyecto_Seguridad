@@ -1,0 +1,14 @@
+================================================================
+ SecureShield - Registro de Eventos Iniciado
+ Fecha: 2026-06-11 20:24:51
+================================================================
+[2026-06-11 20:24:51] [INFO    ] [SISTEMA] SecureShield v1.0 iniciado correctamente
+[2026-06-11 20:26:08] [INFO    ] [SISTEMA] SecureShield cerrado por el usuario
+================================================================
+ SecureShield - Registro de Eventos Iniciado
+ Fecha: 2026-06-11 20:27:18
+================================================================
+[2026-06-11 20:27:18] [INFO    ] [SISTEMA] SecureShield v1.0 iniciado correctamente
+[2026-06-11 20:27:56] [INFO    ] [AUTH] Nuevo usuario registrado: sebas [Rol: admin]
+[2026-06-11 20:28:02] [INFO    ] [AUTH] Login exitoso: sebas [Rol: admin]
+[2026-06-11 20:29:00] [INFO    ] [SISTEMA] SecureShield cerrado por el usuario
